@@ -29,19 +29,19 @@ def get_deployments() -> list[dict[str, Deployment]]:
     deployments = []
     is_failover = Variable.get("dr_failover_enabled", default=False, deserialize_json=True)
 
-    for src, dst in DR_DEPLOYMENTS.items():
-        src_deployment = astro_client.get_deployment(src)
-        assert src_deployment is not None, f"Source deployment with ID {src} not found"
-        logger.info("Found source deployment: %s", src_deployment.name)
+    for act, sby in DR_DEPLOYMENTS.items():
+        act_deployment = astro_client.get_deployment(act)
+        assert act_deployment is not None, f"active deployment with ID {act} not found"
+        logger.info("Found active deployment: %s", act_deployment.name)
 
-        dst_deployment = astro_client.get_deployment(dst)
-        assert dst_deployment is not None, f"Target deployment with ID {dst} not found"
-        logger.info("Found target deployment: %s", dst_deployment.name)
+        sby_deployment = astro_client.get_deployment(sby)
+        assert sby_deployment is not None, f"standby deployment with ID {sby} not found"
+        logger.info("Found standby deployment: %s", sby_deployment.name)
 
         if is_failover:
-            deployments.append({"source": dst_deployment, "target": src_deployment})
+            deployments.append({"active": sby_deployment, "standby": act_deployment})
         else:
-            deployments.append({"source": src_deployment, "target": dst_deployment})
+            deployments.append({"active": act_deployment, "standby": sby_deployment})
 
     return deployments
 
@@ -117,44 +117,44 @@ def revert_hibernation(deployment: Deployment, override: DeploymentHibernationOv
 
 
 @task
-def dags_paused(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
+def dags_paused(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
 
-    for d in starship_src.get_dags():
-        starship_dst.set_dag_paused(d.dag_id, d.is_paused)
+    for d in starship_act.get_dags():
+        starship_sby.set_dag_paused(d.dag_id, d.is_paused)
 
 
 @task
-def dag_runs(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
+def dag_runs(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
 
     limit = 100
-    for d in starship_src.get_dags():
-        starship_dst.delete_dag_runs(d.dag_id)
+    for d in starship_act.get_dags():
+        starship_sby.delete_dag_runs(d.dag_id)
 
         offset = 0
         while True:
-            dag_runs = starship_src.get_dag_runs(d.dag_id, limit=limit, offset=offset)
+            dag_runs = starship_act.get_dag_runs(d.dag_id, limit=limit, offset=offset)
             if not dag_runs:
                 break
 
-            starship_dst.set_dag_runs(dag_runs)
+            starship_sby.set_dag_runs(dag_runs)
             offset += limit
 
 
 @task
-def task_instances(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
+def task_instances(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
 
     limit = 10
-    for d in starship_src.get_dags():
+    for d in starship_act.get_dags():
         offset = 0
         while True:
-            response = starship_src.get_task_instances(d.dag_id, limit=limit, offset=offset)
-            starship_dst.set_task_instances(response.task_instances)
+            response = starship_act.get_task_instances(d.dag_id, limit=limit, offset=offset)
+            starship_sby.set_task_instances(response.task_instances)
 
             offset += limit
             if offset > response.dag_run_count:
@@ -162,16 +162,16 @@ def task_instances(source: Deployment, target: Deployment) -> None:
 
 
 @task
-def task_instance_history(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
+def task_instance_history(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
 
     limit = 10
-    for d in starship_src.get_dags():
+    for d in starship_act.get_dags():
         offset = 0
         while True:
-            response = starship_src.get_task_instance_history(d.dag_id, limit=limit, offset=offset)
-            starship_dst.set_task_instance_history(response.task_instances)
+            response = starship_act.get_task_instance_history(d.dag_id, limit=limit, offset=offset)
+            starship_sby.set_task_instance_history(response.task_instances)
 
             offset += limit
             if offset > response.dag_run_count:
@@ -179,43 +179,43 @@ def task_instance_history(source: Deployment, target: Deployment) -> None:
 
 
 @task
-def variables(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
+def variables(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
 
-    for variable in starship_dst.get_variables():
-        starship_dst.delete_variable(variable.key)
+    for variable in starship_sby.get_variables():
+        starship_sby.delete_variable(variable.key)
 
-    for variable in starship_src.get_variables():
-        starship_dst.set_variable(variable)
-
-
-@task
-def connections(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
-
-    for connection in starship_dst.get_connections():
-        starship_dst.delete_connection(connection.conn_id)
-
-    for connection in starship_src.get_connections():
-        starship_dst.set_connection(connection)
+    for variable in starship_act.get_variables():
+        starship_sby.set_variable(variable)
 
 
 @task
-def pools(source: Deployment, target: Deployment) -> None:
-    starship_src = StarshipClient(source.ui_url, ASTRO_API_KEY)
-    starship_dst = StarshipClient(target.ui_url, ASTRO_API_KEY)
+def connections(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
 
-    for pool in starship_dst.get_pools():
+    for connection in starship_sby.get_connections():
+        starship_sby.delete_connection(connection.conn_id)
+
+    for connection in starship_act.get_connections():
+        starship_sby.set_connection(connection)
+
+
+@task
+def pools(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
+
+    for pool in starship_sby.get_pools():
         if pool.is_default:
             continue
-        starship_dst.delete_pool(pool.name)
+        starship_sby.delete_pool(pool.name)
 
-    for pool in starship_src.get_pools():
+    for pool in starship_act.get_pools():
         if pool.is_default:
             continue
-        starship_dst.set_pool(pool)
+        starship_sby.set_pool(pool)
 
 
 @task
@@ -231,59 +231,61 @@ def set_failover_state():
 
 
 @task_group
-def starship(source: Deployment, target: Deployment):
-    dags_paused(source, target)
-    dag_runs(source, target) >> task_instances(source, target) >> task_instance_history(source, target)
-    variables(source, target)
-    connections(source, target)
-    pools(source, target)
+def starship(active: Deployment, standby: Deployment):
+    dags_paused(active, standby)
+    dag_runs(active, standby) >> task_instances(active, standby) >> task_instance_history(active, standby)
+    variables(active, standby)
+    connections(active, standby)
+    pools(active, standby)
 
 
 @task_group
-def replicate(source: Deployment, target: Deployment):
-    source_hibernation_override = set_hibernation.override(task_id="wake_up_source")(source, False).as_setup()
-    target_hibernation_override = set_hibernation.override(task_id="wake_up_target")(target, False).as_setup()
+def replicate(active: Deployment, standby: Deployment):
+    active_hibernation_override = set_hibernation.override(task_id="wake_up_active")(active, False).as_setup()
+    standby_hibernation_override = set_hibernation.override(task_id="wake_up_standby")(
+        standby, False
+    ).as_setup()
 
-    source_woken_up = source_hibernation_override >> wait_for_deployment_wake_up.override(
-        task_id="wait_for_source",
-    )(source)
-    target_woken_up = target_hibernation_override >> wait_for_deployment_wake_up.override(
-        task_id="wait_for_target",
-    )(target)
+    active_woken_up = active_hibernation_override >> wait_for_deployment_wake_up.override(
+        task_id="wait_for_active",
+    )(active)
+    standby_woken_up = standby_hibernation_override >> wait_for_deployment_wake_up.override(
+        task_id="wait_for_standby",
+    )(standby)
 
-    scheduling_disabled = [source_woken_up, target_woken_up] >> use_job_schedule.override(
-        task_id="disable_scheduling_target"
-    )(target, False)
+    scheduling_disabled = [active_woken_up, standby_woken_up] >> use_job_schedule.override(
+        task_id="disable_scheduling_standby"
+    )(standby, False)
 
-    replicated = scheduling_disabled >> starship(source, target)
+    replicated = scheduling_disabled >> starship(active, standby)
 
     (
         replicated
-        >> revert_hibernation.override(task_id="hibernate_source")(
-            source,
-            source_hibernation_override,  # ty:ignore[invalid-argument-type]
+        >> revert_hibernation.override(task_id="hibernate_active")(
+            active,
+            active_hibernation_override,  # ty:ignore[invalid-argument-type]
         ).as_teardown()
     )
     (
         replicated
-        >> revert_hibernation.override(task_id="hibernate_target")(
-            target,
-            target_hibernation_override,  # ty:ignore[invalid-argument-type]
+        >> revert_hibernation.override(task_id="hibernate_standby")(
+            standby,
+            standby_hibernation_override,  # ty:ignore[invalid-argument-type]
         ).as_teardown()
     )
 
 
 @task_group
-def failover(source: Deployment, target: Deployment):
-    # source
-    use_job_schedule.override(task_id="disable_scheduling_source")(source, False) >> set_hibernation.override(
-        task_id="hibernate_source"
-    )(source, True)
+def failover(active: Deployment, standby: Deployment):
+    # active
+    use_job_schedule.override(task_id="disable_scheduling_active")(active, False) >> set_hibernation.override(
+        task_id="hibernate_active"
+    )(active, True)
 
-    # target
-    use_job_schedule.override(task_id="enable_scheduling_target")(target, True) >> set_hibernation.override(
-        task_id="wake_up_target"
-    )(target, False)
+    # standby
+    use_job_schedule.override(task_id="enable_scheduling_standby")(standby, True) >> set_hibernation.override(
+        task_id="wake_up_standby"
+    )(standby, False)
 
 
 @dag(
