@@ -1,0 +1,14 @@
+# Ignore everything
+**
+
+!.astro/
+!dags/
+!include/
+!plugins/
+!tests/
+
+!packages.txt
+!pyproject.toml
+!requirements.txt
+
+**/__pycache__/
