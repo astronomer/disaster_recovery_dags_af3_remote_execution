@@ -19,7 +19,7 @@ class Connection(Base):
     schema: str | None
     login: str | None
     password: str | None
-    extra: dict | None
+    extra: str | None
     description: str | None
 
 
