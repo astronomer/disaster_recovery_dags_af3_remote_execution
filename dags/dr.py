@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import timedelta
@@ -21,10 +22,7 @@ SUPPORTED_STARSHIP_VERSIONS = SpecifierSet("~=2.8")
 
 ASTRO_ORGANIZATION_ID = os.environ["ASTRO_ORGANIZATION_ID"]
 ASTRO_API_KEY = os.environ["ASTRO_API_KEY"]
-
-DR_DEPLOYMENTS = {  # TODO add deployment IDs
-    # "active-deployment-id": "standby-deployment-id",
-}
+DR_DEPLOYMENTS = json.loads(os.environ.get("DR_DEPLOYMENTS", "{}"))
 """A mapping from active deployment IDs to standby deployment IDs."""
 
 
