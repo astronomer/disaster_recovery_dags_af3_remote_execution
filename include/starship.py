@@ -11,6 +11,11 @@ class Base(BaseModel):
     pass
 
 
+class Info(Base):
+    airflow_version: str
+    starship_version: str
+
+
 class Connection(Base):
     conn_id: str
     conn_type: str
@@ -182,6 +187,10 @@ class StarshipClient:
         except requests.HTTPError as e:
             logger.error("HTTP error occurred: %s - %s", e.response.status_code, e.response.text)
             raise
+
+    def get_info(self) -> Info:
+        response = self._request("GET", "/info")
+        return Info.model_validate_json(response.text)
 
     def get_dags(self) -> list[Dag]:
         response = self._request("GET", "/dags")

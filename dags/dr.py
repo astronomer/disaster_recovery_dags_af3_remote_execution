@@ -2,7 +2,10 @@ import logging
 import os
 from datetime import timedelta
 
+from airflow.exceptions import AirflowFailException
 from airflow.sdk import Param, PokeReturnValue, Variable, dag, get_current_context, task, task_group
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 from include.astro_api import (
     AstroApiClient,
@@ -13,6 +16,8 @@ from include.starship import StarshipClient
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_AIRFLOW_VERSIONS = SpecifierSet("~=3.0,<3.2")
+SUPPORTED_STARSHIP_VERSIONS = SpecifierSet("~=2.8")
 
 ASTRO_ORGANIZATION_ID = os.environ["ASTRO_ORGANIZATION_ID"]
 ASTRO_API_KEY = os.environ["ASTRO_API_KEY"]
@@ -114,6 +119,42 @@ def revert_hibernation(deployment: Deployment, override: DeploymentHibernationOv
 
     astro_client.update_deployment(deployment.id, request)
     logger.info("Deployment %s hibernation override restored", deployment.name)
+
+
+@task
+def check_version(active: Deployment, standby: Deployment) -> None:
+    starship_act = StarshipClient(active.ui_url, ASTRO_API_KEY)
+    starship_sby = StarshipClient(standby.ui_url, ASTRO_API_KEY)
+    info_act = starship_act.get_info()
+    info_sby = starship_sby.get_info()
+
+    for info in [info_act, info_sby]:
+        airflow_version = Version(info.airflow_version)
+        starship_version = Version(info.starship_version)
+
+        if airflow_version not in SUPPORTED_AIRFLOW_VERSIONS:
+            raise AirflowFailException(
+                f"Airflow version {airflow_version} not supported. Must be within {SUPPORTED_AIRFLOW_VERSIONS}"
+            )
+
+        if starship_version not in SUPPORTED_STARSHIP_VERSIONS:
+            raise AirflowFailException(
+                f"Starship version {starship_version} not supported. Must be within {SUPPORTED_STARSHIP_VERSIONS}"
+            )
+
+    if info_act.airflow_version != info_sby.airflow_version:
+        logger.warning(
+            "Airflow version mismatch: active=%s, standby=%s",
+            info_act.airflow_version,
+            info_sby.airflow_version,
+        )
+
+    if info_act.starship_version != info_sby.starship_version:
+        logger.warning(
+            "Starship version mismatch: active=%s, standby=%s",
+            info_act.starship_version,
+            info_sby.starship_version,
+        )
 
 
 @task
@@ -232,11 +273,17 @@ def set_failover_state():
 
 @task_group
 def starship(active: Deployment, standby: Deployment):
-    dags_paused(active, standby)
-    dag_runs(active, standby) >> task_instances(active, standby) >> task_instance_history(active, standby)
-    variables(active, standby)
-    connections(active, standby)
-    pools(active, standby)
+    version_checked = check_version(active, standby)
+    version_checked >> dags_paused(active, standby)
+    (
+        version_checked
+        >> dag_runs(active, standby)
+        >> task_instances(active, standby)
+        >> task_instance_history(active, standby)
+    )
+    version_checked >> variables(active, standby)
+    version_checked >> connections(active, standby)
+    version_checked >> pools(active, standby)
 
 
 @task_group
