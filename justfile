@@ -1,6 +1,6 @@
 PYTHON_VERSION := "3.12"
 RUNTIME_UPDATES_URL := "https://updates.astronomer.io/astronomer-runtime"
-RUNTIME_VERSION := "3.1-12"
+RUNTIME_VERSION := "3.1-14"
 VENV := ".venv"
 AIRFLOW_VERSION := shell('curl -fs $1 | jq -r ".runtimeVersionsV3[\"$2\"].metadata.airflowVersion"', RUNTIME_UPDATES_URL, RUNTIME_VERSION)
 

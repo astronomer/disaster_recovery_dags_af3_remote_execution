@@ -17,6 +17,12 @@ class Base(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+# Remote Execution Models
+class RemoteExecution(Base):
+    enabled: bool
+    allowed_ip_address_ranges: list[str] | None = None
+
+
 # Subject Profile Models
 class BasicSubjectProfile(Base):
     id: str
@@ -189,6 +195,7 @@ class Deployment(Base):
     oidc_issuer_url: str | None = None
     organization_id: str | None = None
     region: str | None = None
+    remote_execution: RemoteExecution | None = None
     resource_quota_cpu: str | None = None
     resource_quota_memory: str | None = None
     runtime_version: str | None = None
@@ -240,6 +247,7 @@ class Deployment(Base):
             description=self.description,
             dr_workload_identity=self.effective_dr_workload_identity,
             is_development_mode=self.is_development_mode,
+            remote_execution=self.remote_execution,
             resource_quota_cpu=self.resource_quota_cpu,
             resource_quota_memory=self.resource_quota_memory,
             scaling_spec=self.scaling_spec.update() if self.scaling_spec else None,
@@ -273,6 +281,7 @@ class UpdateDeploymentRequest(Base):
     description: str | None = None
     dr_workload_identity: str | None = None
     is_development_mode: bool | None = None
+    remote_execution: RemoteExecution | None = None
     resource_quota_cpu: str | None = None
     resource_quota_memory: str | None = None
     scaling_spec: DeploymentScalingSpecRequest | None = None
